@@ -15,7 +15,8 @@ data class Tab(
     val webView: WebView,
     var title: String = "New Tab",
     var url: String = "about:blank",
-    var favicon: Bitmap? = null
+    var favicon: Bitmap? = null,
+    var profile: Profile = ProfileManager.DEFAULT_PROFILES[0]
 )
 
 class TabManager(
@@ -44,11 +45,12 @@ class TabManager(
     val allTabs: List<Tab> get() = tabs.toList()
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun createTab(url: String = "about:blank"): Tab {
+    fun createTab(url: String = "about:blank", profile: Profile? = null): Tab {
+        val selectedProfile = profile ?: ProfileManager.DEFAULT_PROFILES[0]
         val webView = WebView(context)
         configureWebView(webView)
 
-        val tab = Tab(id = nextId++, webView = webView, url = url)
+        val tab = Tab(id = nextId++, webView = webView, url = url, profile = selectedProfile)
         tabs.add(tab)
         switchToTab(tabs.size - 1)
         webView.loadUrl(url)
