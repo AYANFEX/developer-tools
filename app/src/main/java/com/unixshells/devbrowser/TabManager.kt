@@ -9,6 +9,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebResourceRequest
 import android.util.Log
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 
 data class Tab(
     val id: Int,
@@ -48,6 +50,19 @@ class TabManager(
     fun createTab(url: String = "about:blank", profile: Profile? = null): Tab {
         val selectedProfile = profile ?: ProfileManager.DEFAULT_PROFILES[0]
         val webView = WebView(context)
+
+        // Set WebView Profile for per-tab cookie/session isolation if supported
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.PROFILE_STORE) &&
+            WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
+        ) {
+            try {
+                WebViewCompat.setProfile(webView, selectedProfile.id)
+                Log.d(TAG, "Set WebView profile '${selectedProfile.id}' for tab")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting WebView profile: ${e.message}")
+            }
+        }
+
         configureWebView(webView)
 
         val tab = Tab(id = nextId++, webView = webView, url = url, profile = selectedProfile)
