@@ -52,9 +52,7 @@ class TabManager(
         val webView = WebView(context)
 
         // Set WebView Profile for per-tab cookie/session isolation if supported
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.PROFILE_STORE) &&
-            WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
-        ) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
             try {
                 WebViewCompat.setProfile(webView, selectedProfile.id)
                 Log.d(TAG, "Set WebView profile '${selectedProfile.id}' for tab")
