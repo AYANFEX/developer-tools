@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity() {
 
     // State
     private lateinit var tabManager: TabManager
+    private lateinit var profileManager: ProfileManager
     private var cdpBridge: CDPBridge? = null
     private var devToolsServer: DevToolsServer? = null
     private var isDevToolsVisible = false
@@ -68,6 +69,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("devbrowser_settings", Context.MODE_PRIVATE)
+        profileManager = ProfileManager(this)
 
         findViews()
         setupWindowInsets()
@@ -84,7 +86,7 @@ class MainActivity : AppCompatActivity() {
 
         // Create first tab
         val intentUrl = intent?.dataString
-        tabManager.createTab(intentUrl ?: "https://www.google.com")
+        tabManager.createTab(intentUrl ?: "https://www.google.com", profileManager.getProfiles().firstOrNull())
     }
 
     private fun setupWindowInsets() {
@@ -476,6 +478,21 @@ class MainActivity : AppCompatActivity() {
         if (isTabStripVisible) updateTabStrip()
     }
 
+    private fun showNewTabProfileDialog(url: String = "about:blank") {
+        val profiles = profileManager.getProfiles()
+        val items = profiles.map { "• ${it.name}" }.toTypedArray()
+
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+        builder.setTitle("Select Profile for New Tab")
+        builder.setItems(items) { _, which ->
+            val selectedProfile = profiles[which]
+            tabManager.createTab(url, selectedProfile)
+            if (!isTabStripVisible) toggleTabStrip()
+        }
+        builder.setNegativeButton("Cancel", null)
+        builder.show()
+    }
+
     private fun updateTabStrip() {
         tabContainer.removeAllViews()
         val tabs = tabManager.allTabs
@@ -485,7 +502,7 @@ class MainActivity : AppCompatActivity() {
             val tabView = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(12, 4, 4, 4)
+                setPadding(10, 4, 4, 4)
                 val isActive = tab == activeTab
                 setBackgroundColor(
                     if (isActive) Color.parseColor("#252545") else Color.TRANSPARENT
@@ -494,8 +511,19 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener { tabManager.switchToTab(index) }
             }
 
+            val colorDot = View(this).apply {
+                val dotSize = (8 * resources.displayMetrics.density).toInt()
+                layoutParams = LinearLayout.LayoutParams(dotSize, dotSize).apply {
+                    marginEnd = (6 * resources.displayMetrics.density).toInt()
+                }
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(tab.profile.color)
+                }
+            }
+
             val titleView = TextView(this).apply {
-                text = if (tab.title.length > 20) tab.title.take(20) + "..." else tab.title
+                text = if (tab.title.length > 18) tab.title.take(18) + "..." else tab.title
                 textSize = 12f
                 setTextColor(Color.parseColor("#cccccc"))
                 maxLines = 1
@@ -521,6 +549,7 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener { tabManager.closeTab(index) }
             }
 
+            tabView.addView(colorDot)
             tabView.addView(titleView)
             tabView.addView(closeBtn)
 
@@ -540,7 +569,7 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
             setPadding(16, 0, 16, 0)
             setOnClickListener {
-                tabManager.createTab("about:blank")
+                showNewTabProfileDialog("about:blank")
             }
         }
         tabContainer.addView(
@@ -640,8 +669,7 @@ class MainActivity : AppCompatActivity() {
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.menu_new_tab -> {
-                    tabManager.createTab("about:blank")
-                    if (!isTabStripVisible) toggleTabStrip()
+                    showNewTabProfileDialog("about:blank")
                     true
                 }
                 R.id.menu_devtools -> {
