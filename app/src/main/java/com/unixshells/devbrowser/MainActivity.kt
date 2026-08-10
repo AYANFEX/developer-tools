@@ -175,6 +175,9 @@ class MainActivity : AppCompatActivity() {
             allowContentAccess = true
             useWideViewPort = true
             loadWithOverviewMode = true
+            builtInZoomControls = true
+            displayZoomControls = false
+            setSupportZoom(true)
             @Suppress("DEPRECATION")
             allowUniversalAccessFromFileURLs = true
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
@@ -186,6 +189,14 @@ class MainActivity : AppCompatActivity() {
             ): Boolean = false
 
             override fun onPageFinished(view: WebView, url: String) {
+                view.evaluateJavascript("""
+                    (function() {
+                        var style = document.createElement('style');
+                        style.type = 'text/css';
+                        style.innerHTML = 'input, select, textarea { font-size: 16px !important; }';
+                        document.head.appendChild(style);
+                    })();
+                """.trimIndent(), null)
             }
         }
 
