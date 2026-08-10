@@ -74,7 +74,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-    implementation("androidx.webkit:webkit:1.9.0")
+    implementation("androidx.webkit:webkit:1.12.0")
 
     // NanoHTTPD for local HTTP server (serves DevTools frontend)
     implementation("org.nanohttpd:nanohttpd:2.3.1")
