@@ -27,7 +27,9 @@ import androidx.appcompat.widget.PopupMenu
 import android.util.Log
 import java.net.URLEncoder
 
-class MainActivity : AppCompatActivity() {
+open class MainActivity : AppCompatActivity() {
+
+    open val baseCdpPort: Int = 9222
 
     companion object {
         private const val TAG = "DevBrowser"
@@ -320,13 +322,14 @@ class MainActivity : AppCompatActivity() {
         val pid = Process.myPid()
         Log.d(TAG, "PID: $pid")
 
-        val httpPort = prefs.getInt("cdp_http_port", CDP_HTTP_PORT)
-        val wsPort = prefs.getInt("cdp_ws_port", CDP_WS_PORT)
+        val httpPort = prefs.getInt("cdp_http_port", baseCdpPort)
+        val wsPort = prefs.getInt("cdp_ws_port", baseCdpPort + 1)
+        val devtoolsPort = baseCdpPort + 2
 
         cdpBridge = CDPBridge(httpPort, wsPort).apply { start(pid) }
-        devToolsServer = DevToolsServer(this@MainActivity, DEVTOOLS_PORT).apply { start() }
+        devToolsServer = DevToolsServer(this@MainActivity, devtoolsPort).apply { start() }
 
-        Log.d(TAG, "Servers started - HTTP:$httpPort WS:$wsPort DevTools:$DEVTOOLS_PORT")
+        Log.d(TAG, "Servers started - HTTP:$httpPort WS:$wsPort DevTools:$devtoolsPort")
     }
 
     // ─── DevTools ────────────────────────────────────────
@@ -360,7 +363,8 @@ class MainActivity : AppCompatActivity() {
         divider.visibility = View.VISIBLE
         devtoolsWebView.visibility = View.VISIBLE
 
-        val cdpPort = prefs.getInt("cdp_http_port", CDP_HTTP_PORT)
+        val cdpPort = prefs.getInt("cdp_http_port", baseCdpPort)
+        val devtoolsPort = baseCdpPort + 2
 
         // Discover the browser WebView's page ID from CDP /json endpoint
         // Both HTTP and WS go through the same port (the Unix socket handles both)
@@ -388,7 +392,7 @@ class MainActivity : AppCompatActivity() {
                 // Pick the page that isn't our devtools page
                 var pageId = ids.firstOrNull() ?: ""
                 for (i in ids.indices) {
-                    if (i < urls.size && !urls[i].contains("devtools_app") && !urls[i].contains("9224")) {
+                    if (i < urls.size && !urls[i].contains("devtools_app") && !urls[i].contains("$devtoolsPort")) {
                         pageId = ids[i]
                         break
                     }
@@ -396,7 +400,7 @@ class MainActivity : AppCompatActivity() {
 
                 Log.d(TAG, "Discovered page ID: $pageId")
 
-                val devtoolsUrl = "http://localhost:$DEVTOOLS_PORT/devtools_app.html" +
+                val devtoolsUrl = "http://localhost:$devtoolsPort/devtools_app.html" +
                     "?ws=127.0.0.1:$cdpPort/devtools/page/$pageId"
 
                 runOnUiThread {
@@ -406,7 +410,7 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to discover page ID: ${e.message}", e)
                 runOnUiThread {
-                    val devtoolsUrl = "http://localhost:$DEVTOOLS_PORT/devtools_app.html" +
+                    val devtoolsUrl = "http://localhost:$devtoolsPort/devtools_app.html" +
                         "?ws=127.0.0.1:$cdpPort"
                     Log.d(TAG, "Loading DevTools (fallback): $devtoolsUrl")
                     devtoolsWebView.loadUrl(devtoolsUrl)
