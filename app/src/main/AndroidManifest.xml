@@ -38,6 +38,30 @@
             android:exported="false"
             android:theme="@style/Theme.DevBrowser" />
 
+        <activity
+            android:name=".WorkProfileActivity"
+            android:exported="false"
+            android:process=":profile_work"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.DevBrowser" />
+
+        <activity
+            android:name=".TestingProfileActivity"
+            android:exported="false"
+            android:process=":profile_testing"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.DevBrowser" />
+
+        <activity
+            android:name=".GuestProfileActivity"
+            android:exported="false"
+            android:process=":profile_guest"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.DevBrowser" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
