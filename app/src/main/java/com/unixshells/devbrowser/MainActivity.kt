@@ -63,6 +63,7 @@ open class MainActivity : AppCompatActivity() {
     private var isTabStripVisible = false
     private var dockMode = DockMode.BOTTOM
     private lateinit var prefs: SharedPreferences
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
 
     enum class DockMode { BOTTOM, RIGHT }
 
@@ -127,7 +128,6 @@ open class MainActivity : AppCompatActivity() {
         tabManager = TabManager(
             context = this,
             onTabChanged = { tab ->
-                // Swap the WebView shown in the browser container
                 browserContainer.removeAllViews()
                 tab.webView?.let { wv ->
                     (wv.parent as? ViewGroup)?.removeView(wv)
@@ -158,10 +158,80 @@ open class MainActivity : AppCompatActivity() {
                 if (tab == tabManager.activeTab) {
                     updateProgressBar(progress)
                 }
-            }
+            },
+            onShowFileChooser = { cb, params -> handleShowFileChooser(cb, params) }
         )
 
         tabManager.updateDesktopMode(prefs.getBoolean("desktop_mode_default", true))
+    }
+
+    private fun handleShowFileChooser(callback: ValueCallback<Array<Uri>>?, params: WebChromeClient.FileChooserParams?): Boolean {
+        filePathCallback?.onReceiveValue(null)
+        filePathCallback = callback
+
+        val permission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            android.Manifest.permission.READ_MEDIA_IMAGES
+        } else {
+            android.Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, permission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(permission), 1001)
+        }
+
+        try {
+            val intent = params?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+            }
+            filePickerLauncher.launch(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch file chooser: ${e.message}")
+            showCustomFilePicker()
+        }
+        return true
+    }
+
+    private val filePickerLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val uri = result.data?.data
+            val uris = if (uri != null) arrayOf(uri) else null
+            filePathCallback?.onReceiveValue(uris)
+        } else {
+            filePathCallback?.onReceiveValue(null)
+        }
+        filePathCallback = null
+    }
+
+    private fun showCustomFilePicker() {
+        val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val files = downloadDir.listFiles()?.filter { it.isFile } ?: emptyList()
+        val fileNames = files.map { it.name }.toTypedArray()
+
+        if (fileNames.isEmpty()) {
+            Toast.makeText(this, "No files found in Downloads", Toast.LENGTH_SHORT).show()
+            filePathCallback?.onReceiveValue(null)
+            filePathCallback = null
+            return
+        }
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Select File to Upload")
+            .setItems(fileNames) { _, which ->
+                val selectedFile = files[which]
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    this, "${packageName}.fileprovider", selectedFile
+                )
+                filePathCallback?.onReceiveValue(arrayOf(uri))
+                filePathCallback = null
+            }
+            .setOnCancelListener {
+                filePathCallback?.onReceiveValue(null)
+                filePathCallback = null
+            }
+            .show()
     }
 
     private fun updateProgressBar(progress: Int) {
@@ -465,6 +535,53 @@ open class MainActivity : AppCompatActivity() {
         """.trimIndent(), null)
     }
 
+    private fun openDevToolsAsTab() {
+        val cdpPort = prefs.getInt("cdp_http_port", baseCdpPort)
+        val devtoolsPort = baseCdpPort + 2
+
+        Thread {
+            try {
+                Thread.sleep(300)
+                val conn = java.net.URL("http://127.0.0.1:$cdpPort/json").openConnection()
+                    as java.net.HttpURLConnection
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
+                val json = conn.inputStream.bufferedReader().readText()
+                conn.disconnect()
+
+                val idMatch = Regex(""""id"\s*:\s*"([^"]+)"""").findAll(json)
+                val urlMatch = Regex(""""url"\s*:\s*"([^"]+)"""").findAll(json)
+
+                val ids = idMatch.map { it.groupValues[1] }.toList()
+                val urls = urlMatch.map { it.groupValues[1] }.toList()
+
+                var pageId = ids.firstOrNull() ?: ""
+                for (i in ids.indices) {
+                    if (i < urls.size && !urls[i].contains("devtools_app") && !urls[i].contains("$devtoolsPort")) {
+                        pageId = ids[i]
+                        break
+                    }
+                }
+
+                val devtoolsUrl = "http://localhost:$devtoolsPort/devtools_app.html" +
+                    "?ws=127.0.0.1:$cdpPort/devtools/page/$pageId"
+
+                runOnUiThread {
+                    val tab = tabManager.createTab(devtoolsUrl, profileManager.getProfiles().firstOrNull())
+                    tab.title = "DevTools"
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to open DevTools as tab: ${e.message}", e)
+                runOnUiThread {
+                    val devtoolsUrl = "http://localhost:$devtoolsPort/devtools_app.html" +
+                        "?ws=127.0.0.1:$cdpPort"
+                    val tab = tabManager.createTab(devtoolsUrl, profileManager.getProfiles().firstOrNull())
+                    tab.title = "DevTools"
+                }
+            }
+        }.start()
+    }
+
     // ─── Desktop Mode ────────────────────────────────────
 
     private fun toggleDesktopMode() {
@@ -711,6 +828,10 @@ open class MainActivity : AppCompatActivity() {
                 }
                 R.id.menu_devtools -> {
                     toggleDevTools()
+                    true
+                }
+                R.id.menu_devtools_tab -> {
+                    openDevToolsAsTab()
                     true
                 }
                 R.id.menu_view_source -> {
