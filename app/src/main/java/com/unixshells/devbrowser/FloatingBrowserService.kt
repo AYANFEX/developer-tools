@@ -1,5 +1,6 @@
 package com.unixshells.devbrowser
 
+import android.app.AlertDialog
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,24 +8,34 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.*
+import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import androidx.core.app.NotificationCompat
+import androidx.core.content.FileProvider
 
 class FloatingBrowserService : Service() {
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
     private var webView: WebView? = null
-    private var windowParams: WindowManager.LayoutParams? = null
+    private var selectionMenuView: View? = null
+    private val selectionHandler = Handler(Looper.getMainLooper())
+    private var pendingHideRunnable: Runnable? = null
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
 
     companion object {
         private const val CHANNEL_ID = "floating_browser_channel"
@@ -89,13 +100,36 @@ class FloatingBrowserService : Service() {
                 x = (screenWidth - defaultWidth) / 2
                 y = (screenHeight - defaultHeight) / 4
             }
-            windowParams = params
 
             webView = WebView(this).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
-                webViewClient = WebViewClient()
-                webChromeClient = WebChromeClient()
+                isLongClickable = true
+                isFocusable = true
+                isFocusableInTouchMode = true
+
+                addJavascriptInterface(SelectionBridge(this), "AndroidSelectionHandler")
+
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        view?.evaluateJavascript(selectionJs, null)
+                    }
+                }
+
+                webChromeClient = object : WebChromeClient() {
+                    override fun onShowFileChooser(
+                        view: WebView?,
+                        callback: ValueCallback<Array<Uri>>?,
+                        params: FileChooserParams?
+                    ): Boolean {
+                        filePathCallback?.onReceiveValue(null)
+                        filePathCallback = callback
+                        showCustomFilePicker()
+                        return true
+                    }
+                }
+
                 loadUrl("https://www.google.com")
             }
 
@@ -214,12 +248,224 @@ class FloatingBrowserService : Service() {
                 runCatching { windowManager?.updateViewLayout(view, params) }
             }
 
+            // Handle Back key inside floating window without affecting main app
+            view.isFocusableInTouchMode = true
+            view.setOnKeyListener { _, keyCode, event ->
+                if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                    if (webView?.canGoBack() == true) {
+                        webView?.goBack()
+                    } else {
+                        stopSelf()
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+
             windowManager?.addView(view, params)
             AppLogger.log("Floating view added to WindowManager successfully")
         } catch (e: Exception) {
             AppLogger.log("CRASH in FloatingBrowserService.onCreate: ${e.stackTraceToString()}")
             e.printStackTrace()
             stopSelf()
+        }
+    }
+
+    private val selectionJs = """
+        (function() {
+            function getSelectionCoords() {
+                var sel = window.getSelection();
+                if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+                    var range = sel.getRangeAt(0);
+                    var rect = range.getBoundingClientRect();
+                    if (rect.width > 0 || rect.height > 0) {
+                        return {
+                            left: rect.left,
+                            top: rect.top,
+                            width: rect.width,
+                            height: rect.height,
+                            text: sel.toString()
+                        };
+                    }
+                }
+                return null;
+            }
+
+            var selectionDebounce = null;
+            function checkSelection() {
+                var coords = getSelectionCoords();
+                if (coords && coords.text.trim().length > 0) {
+                    AndroidSelectionHandler.showMenu(coords.left, coords.top, coords.width, coords.height);
+                } else {
+                    AndroidSelectionHandler.hideMenu();
+                }
+            }
+
+            document.addEventListener('selectionchange', function() {
+                if (selectionDebounce) clearTimeout(selectionDebounce);
+                selectionDebounce = setTimeout(checkSelection, 80);
+            });
+            document.addEventListener('touchend', function() {
+                setTimeout(checkSelection, 150);
+            });
+            document.addEventListener('mouseup', function() {
+                setTimeout(checkSelection, 150);
+            });
+        })();
+    """.trimIndent()
+
+    private inner class SelectionBridge(private val wv: WebView) {
+        @JavascriptInterface
+        fun showMenu(left: Float, top: Float, width: Float, height: Float) {
+            selectionHandler.post { showSelectionMenu(wv, left, top, width, height) }
+        }
+        @JavascriptInterface
+        fun hideMenu() {
+            selectionHandler.post { hideSelectionMenu() }
+        }
+    }
+
+    private fun showSelectionMenu(webView: WebView, left: Float, top: Float, width: Float, height: Float) {
+        pendingHideRunnable?.let { selectionHandler.removeCallbacks(it) }
+        pendingHideRunnable = null
+
+        val density = resources.displayMetrics.density
+        val scale = webView.scale
+        val location = IntArray(2)
+        webView.getLocationOnScreen(location)
+
+        val selX = location[0] + (left * scale).toInt()
+        val selY = location[1] + (top * scale).toInt()
+        val selWidth = (width * scale).toInt()
+        val selHeight = (height * scale).toInt()
+
+        val isNew = (selectionMenuView == null)
+        val view: View = selectionMenuView ?: run {
+            val themedContext = android.view.ContextThemeWrapper(this, R.style.Theme_DevBrowser)
+            val inflater = LayoutInflater.from(themedContext)
+            val inflated = inflater.inflate(R.layout.floating_selection_menu, null)
+
+            inflated.findViewById<View>(R.id.btnCopy)?.setOnClickListener {
+                webView.evaluateJavascript("document.execCommand('copy')", null)
+                hideSelectionMenuImmediately()
+            }
+            inflated.findViewById<View>(R.id.btnCut)?.setOnClickListener {
+                webView.evaluateJavascript("document.execCommand('cut')", null)
+                hideSelectionMenuImmediately()
+            }
+            inflated.findViewById<View>(R.id.btnPaste)?.setOnClickListener {
+                webView.evaluateJavascript("document.execCommand('paste')", null)
+                hideSelectionMenuImmediately()
+            }
+            inflated.findViewById<View>(R.id.btnSelectAll)?.setOnClickListener {
+                webView.evaluateJavascript("document.execCommand('selectall')", null)
+            }
+            inflated
+        }
+
+        view.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val menuWidth = view.measuredWidth
+        val menuHeight = view.measuredHeight
+
+        var posX = selX + (selWidth / 2) - (menuWidth / 2)
+        var posY = selY - menuHeight - (8 * density).toInt()
+        if (posY < location[1]) {
+            posY = selY + selHeight + (8 * density).toInt()
+        }
+
+        val screenWidth = resources.displayMetrics.widthPixels
+        posX = posX.coerceIn(10, screenWidth - menuWidth - 10)
+
+        if (isNew) {
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_PHONE
+                },
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = posX
+                y = posY
+            }
+            runCatching { windowManager?.addView(view, params) }
+            selectionMenuView = view
+        } else {
+            val params = view.layoutParams as? WindowManager.LayoutParams
+            if (params != null) {
+                params.x = posX
+                params.y = posY
+                runCatching { windowManager?.updateViewLayout(view, params) }
+            }
+        }
+    }
+
+    private fun hideSelectionMenu() {
+        pendingHideRunnable?.let { selectionHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            selectionMenuView?.let { runCatching { windowManager?.removeView(it) } }
+            selectionMenuView = null
+            pendingHideRunnable = null
+        }
+        pendingHideRunnable = runnable
+        selectionHandler.postDelayed(runnable, 350)
+    }
+
+    private fun hideSelectionMenuImmediately() {
+        pendingHideRunnable?.let { selectionHandler.removeCallbacks(it) }
+        pendingHideRunnable = null
+        selectionMenuView?.let { runCatching { windowManager?.removeView(it) } }
+        selectionMenuView = null
+    }
+
+    private fun showCustomFilePicker() {
+        try {
+            val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val files = downloadDir.listFiles()?.filter { it.isFile } ?: emptyList()
+            val fileNames = files.map { it.name }.toTypedArray()
+
+            val themedContext = android.view.ContextThemeWrapper(this, R.style.Theme_DevBrowser)
+            if (fileNames.isEmpty()) {
+                filePathCallback?.onReceiveValue(null)
+                filePathCallback = null
+                return
+            }
+
+            val dialog = AlertDialog.Builder(themedContext)
+                .setTitle("Select File to Upload")
+                .setItems(fileNames) { _, which ->
+                    val selectedFile = files[which]
+                    val uri = FileProvider.getUriForFile(
+                        this, "${packageName}.fileprovider", selectedFile
+                    )
+                    filePathCallback?.onReceiveValue(arrayOf(uri))
+                    filePathCallback = null
+                }
+                .setOnCancelListener {
+                    filePathCallback?.onReceiveValue(null)
+                    filePathCallback = null
+                }
+                .create()
+
+            dialog.window?.setType(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_PHONE
+                }
+            )
+            dialog.show()
+        } catch (e: Exception) {
+            AppLogger.log("Error in showCustomFilePicker: ${e.message}")
+            filePathCallback?.onReceiveValue(null)
+            filePathCallback = null
         }
     }
 
@@ -237,7 +483,7 @@ class FloatingBrowserService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        AppLogger.log("FloatingBrowserService.onDestroy")
+        hideSelectionMenuImmediately()
         webView?.destroy()
         if (floatingView != null) {
             try {
