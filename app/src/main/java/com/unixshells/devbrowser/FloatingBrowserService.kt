@@ -32,90 +32,95 @@ class FloatingBrowserService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-
-        // 1. Create foreground service notification to prevent Android 8.0+ ForegroundServiceDidNotStartInTimeException crash
-        createNotificationChannel()
-        val notificationIntent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, notificationIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("DevBrowser Floating")
-            .setContentText("Floating browser window is running")
-            .setSmallIcon(R.drawable.ic_devtools)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .build()
-
-        startForeground(NOTIFICATION_ID, notification)
-
-        // 2. Initialize WindowManager and Floating View
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        floatingView = LayoutInflater.from(this).inflate(R.layout.floating_browser, null)
-
-        val params = WindowManager.LayoutParams(
-            320,
-            480,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            } else {
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_PHONE
-            },
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 100
-            y = 100
-        }
-
-        webView = WebView(this).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            webViewClient = WebViewClient()
-            webChromeClient = WebChromeClient()
-            loadUrl("https://www.google.com")
-        }
-
-        val container = floatingView?.findViewById<FrameLayout>(R.id.floatWebViewContainer)
-        container?.addView(webView, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
-        val closeBtn = floatingView?.findViewById<ImageButton>(R.id.floatClose)
-        closeBtn?.setOnClickListener {
-            stopSelf()
-        }
-
-        var initialX = 0
-        var initialY = 0
-        var initialTouchX = 0f
-        var initialTouchY = 0f
-
-        val toolbar = floatingView?.findViewById<LinearLayout>(R.id.floatToolbar)
-        toolbar?.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    params.x = initialX + (event.rawX - initialTouchX).toInt()
-                    params.y = initialY + (event.rawY - initialTouchY).toInt()
-                    windowManager?.updateViewLayout(floatingView, params)
-                    true
-                }
-                else -> false
-            }
-        }
+        AppLogger.init(applicationContext)
+        AppLogger.log("FloatingBrowserService.onCreate started")
 
         try {
+            createNotificationChannel()
+            val notificationIntent = Intent(this, MainActivity::class.java)
+            val pendingIntent = PendingIntent.getActivity(
+                this, 0, notificationIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("DevBrowser Floating")
+                .setContentText("Floating browser window is running")
+                .setSmallIcon(R.drawable.ic_devtools)
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .build()
+
+            startForeground(NOTIFICATION_ID, notification)
+            AppLogger.log("FloatingBrowserService startForeground successful")
+
+            windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+            floatingView = LayoutInflater.from(this).inflate(R.layout.floating_browser, null)
+            AppLogger.log("Floating view inflated successfully")
+
+            val params = WindowManager.LayoutParams(
+                320,
+                480,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_PHONE
+                },
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = 100
+                y = 100
+            }
+
+            webView = WebView(this).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                webViewClient = WebViewClient()
+                webChromeClient = WebChromeClient()
+                loadUrl("https://www.google.com")
+            }
+
+            val container = floatingView?.findViewById<FrameLayout>(R.id.floatWebViewContainer)
+            container?.addView(webView, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+            val closeBtn = floatingView?.findViewById<ImageButton>(R.id.floatClose)
+            closeBtn?.setOnClickListener {
+                AppLogger.log("Floating window close button clicked")
+                stopSelf()
+            }
+
+            var initialX = 0
+            var initialY = 0
+            var initialTouchX = 0f
+            var initialTouchY = 0f
+
+            val toolbar = floatingView?.findViewById<LinearLayout>(R.id.floatToolbar)
+            toolbar?.setOnTouchListener { _, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        initialX = params.x
+                        initialY = params.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        params.x = initialX + (event.rawX - initialTouchX).toInt()
+                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        windowManager?.updateViewLayout(floatingView, params)
+                        true
+                    }
+                    else -> false
+                }
+            }
+
             windowManager?.addView(floatingView, params)
+            AppLogger.log("Floating view added to WindowManager successfully")
         } catch (e: Exception) {
+            AppLogger.log("CRASH in FloatingBrowserService.onCreate: ${e.stackTraceToString()}")
             e.printStackTrace()
             stopSelf()
         }
@@ -135,11 +140,14 @@ class FloatingBrowserService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        AppLogger.log("FloatingBrowserService.onDestroy")
         webView?.destroy()
         if (floatingView != null) {
             try {
                 windowManager?.removeView(floatingView)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                AppLogger.log("Error removing floating view: ${e.message}")
+            }
         }
     }
 }
