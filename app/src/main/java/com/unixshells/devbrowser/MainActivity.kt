@@ -52,6 +52,7 @@ open class MainActivity : AppCompatActivity() {
     private lateinit var findBar: LinearLayout
     private lateinit var findInput: EditText
     private lateinit var findCount: TextView
+    private lateinit var progressBar: ProgressBar
 
     // State
     private lateinit var tabManager: TabManager
@@ -86,9 +87,14 @@ open class MainActivity : AppCompatActivity() {
 
         startServers()
 
-        // Create first tab
+        // Restore saved tabs or create first tab
         val intentUrl = intent?.dataString
-        tabManager.createTab(intentUrl ?: "https://www.google.com", profileManager.getProfiles().firstOrNull())
+        val restored = tabManager.restoreState(profileManager)
+        if (intentUrl != null) {
+            tabManager.createTab(intentUrl, profileManager.getProfiles().firstOrNull())
+        } else if (!restored) {
+            tabManager.createTab("https://www.google.com", profileManager.getProfiles().firstOrNull())
+        }
     }
 
     private fun setupWindowInsets() {
@@ -114,6 +120,7 @@ open class MainActivity : AppCompatActivity() {
         findBar = findViewById(R.id.findBar)
         findInput = findViewById(R.id.findInput)
         findCount = findViewById(R.id.findCount)
+        progressBar = findViewById(R.id.progressBar)
     }
 
     private fun setupTabManager() {
@@ -133,14 +140,36 @@ open class MainActivity : AppCompatActivity() {
                 urlBar.setText(tab.url)
                 setupDownloadListener(tab.webView)
                 updateTabStrip()
+                updateProgressBar(tab.progress)
             },
             onTabListChanged = { updateTabStrip() },
-            onPageStarted = { url -> urlBar.setText(url) },
-            onPageFinished = { url -> urlBar.setText(url) },
-            onTitleChanged = { _ -> updateTabStrip() }
+            onPageStarted = { url ->
+                urlBar.setText(url)
+                tabManager.activeTab?.let { updateProgressBar(it.progress) }
+            },
+            onPageFinished = { url ->
+                urlBar.setText(url)
+                tabManager.activeTab?.let { updateProgressBar(it.progress) }
+            },
+            onTitleChanged = { _ -> updateTabStrip() },
+            onProgressChanged = { tab, progress ->
+                if (tab == tabManager.activeTab) {
+                    updateProgressBar(progress)
+                }
+            }
         )
 
         tabManager.updateDesktopMode(prefs.getBoolean("desktop_mode_default", true))
+    }
+
+    private fun updateProgressBar(progress: Int) {
+        if (progress in 1..99) {
+            progressBar.visibility = View.VISIBLE
+            progressBar.progress = progress
+        } else {
+            progressBar.progress = 100
+            progressBar.visibility = View.GONE
+        }
     }
 
     private fun setupDownloadListener(webView: WebView) {
@@ -748,6 +777,13 @@ open class MainActivity : AppCompatActivity() {
             }
             hideDevTools()
             showDevTools()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::tabManager.isInitialized) {
+            tabManager.saveState()
         }
     }
 
