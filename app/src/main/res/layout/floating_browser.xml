@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="320dp"
+    android:layout_height="480dp"
+    android:orientation="vertical"
+    android:background="#1a1a2e"
+    android:elevation="8dp">
+
+    <!-- Floating Header / Toolbar -->
+    <LinearLayout
+        android:id="@+id/floatToolbar"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:background="#0d0d1a"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+
+        <TextView
+            android:id="@+id/floatTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="DevBrowser Floating"
+            android:textColor="#4fc3f7"
+            android:textSize="13sp"
+            android:singleLine="true" />
+
+        <ImageButton
+            android:id="@+id/floatClose"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/ic_close"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#aaaaaa"
+            android:scaleType="centerInside"
+            android:contentDescription="Close" />
+    </LinearLayout>
+
+    <!-- WebView Container -->
+    <FrameLayout
+        android:id="@+id/floatWebViewContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+</LinearLayout>
