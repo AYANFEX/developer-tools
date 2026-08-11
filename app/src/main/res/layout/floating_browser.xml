@@ -33,8 +33,7 @@
             android:layout_width="28dp"
             android:layout_height="28dp"
             android:src="@drawable/ic_close"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="#aaaaaa"
+            android:background="@android:color/transparent"
             android:scaleType="centerInside"
             android:contentDescription="Close" />
     </LinearLayout>
