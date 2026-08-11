@@ -70,6 +70,8 @@ open class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLogger.init(this)
+        AppLogger.log("MainActivity.onCreate started")
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("devbrowser_settings", Context.MODE_PRIVATE)
@@ -829,6 +831,31 @@ open class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ─── Logs Dialog ─────────────────────────────────────
+
+    private fun showLogsDialog() {
+        val logs = AppLogger.readLogs(this)
+        val scrollView = ScrollView(this).apply {
+            setPadding(16, 16, 16, 16)
+            addView(TextView(context).apply {
+                text = logs
+                textSize = 12f
+                setTextColor(Color.parseColor("#cdd6f4"))
+                typeface = Typeface.MONOSPACE
+            })
+        }
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Application Error Logs")
+            .setView(scrollView)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Clear Logs") { _, _ ->
+                AppLogger.clearLogs(this)
+                Toast.makeText(this, "Logs cleared", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
     // ─── Menu ────────────────────────────────────────────
 
     private fun showMenu(anchor: View) {
@@ -869,6 +896,10 @@ open class MainActivity : AppCompatActivity() {
                 }
                 R.id.menu_floating -> {
                     openFloatingWindow()
+                    true
+                }
+                R.id.menu_view_logs -> {
+                    showLogsDialog()
                     true
                 }
                 R.id.menu_inspect -> {
