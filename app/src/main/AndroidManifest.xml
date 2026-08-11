@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="true"
@@ -37,6 +38,10 @@
             android:name=".SettingsActivity"
             android:exported="false"
             android:theme="@style/Theme.DevBrowser" />
+
+        <service
+            android:name=".FloatingBrowserService"
+            android:exported="false" />
 
         <activity
             android:name=".WorkProfileActivity"
