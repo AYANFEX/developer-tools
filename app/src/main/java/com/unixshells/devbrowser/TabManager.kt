@@ -18,7 +18,8 @@ data class Tab(
     var title: String = "New Tab",
     var url: String = "about:blank",
     var favicon: Bitmap? = null,
-    var profile: Profile = ProfileManager.DEFAULT_PROFILES[0]
+    var profile: Profile = ProfileManager.DEFAULT_PROFILES[0],
+    var progress: Int = 0
 )
 
 class TabManager(
@@ -27,7 +28,8 @@ class TabManager(
     private val onTabListChanged: () -> Unit,
     private val onPageStarted: (String) -> Unit,
     private val onPageFinished: (String) -> Unit,
-    private val onTitleChanged: (String) -> Unit
+    private val onTitleChanged: (String) -> Unit,
+    private val onProgressChanged: (Tab, Int) -> Unit = { _, _ -> }
 ) {
     companion object {
         private const val TAG = "TabManager"
@@ -68,12 +70,16 @@ class TabManager(
         switchToTab(tabs.size - 1)
         webView.loadUrl(url)
         onTabListChanged()
+        saveState()
         return tab
     }
 
     fun closeTab(index: Int) {
         if (index < 0 || index >= tabs.size) return
         val tab = tabs.removeAt(index)
+        try {
+            java.io.File(context.filesDir, "tab_state_${tab.id}.dat").delete()
+        } catch (_: Exception) {}
         tab.webView.destroy()
 
         if (tabs.isEmpty()) {
@@ -87,6 +93,7 @@ class TabManager(
             switchToTab(newIndex)
         }
         onTabListChanged()
+        saveState()
     }
 
     fun closeCurrentTab() {
@@ -97,6 +104,7 @@ class TabManager(
         if (index < 0 || index >= tabs.size) return
         activeTabIndex = index
         onTabChanged(tabs[index])
+        saveState()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -124,6 +132,7 @@ class TabManager(
                 findTabByWebView(view)?.let { tab ->
                     tab.url = url
                     if (tab == activeTab) onPageStarted(url)
+                    saveState()
                 }
             }
 
@@ -131,6 +140,7 @@ class TabManager(
                 findTabByWebView(view)?.let { tab ->
                     tab.url = url
                     if (tab == activeTab) onPageFinished(url)
+                    saveState()
                 }
             }
 
@@ -141,11 +151,22 @@ class TabManager(
         }
 
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                findTabByWebView(view)?.let { tab ->
+                    tab.progress = newProgress
+                    onProgressChanged(tab, newProgress)
+                    if (newProgress == 100) {
+                        saveState()
+                    }
+                }
+            }
+
             override fun onReceivedTitle(view: WebView, title: String?) {
                 findTabByWebView(view)?.let { tab ->
                     tab.title = title ?: tab.url
                     if (tab == activeTab) onTitleChanged(tab.title)
                     onTabListChanged()
+                    saveState()
                 }
             }
 
@@ -160,6 +181,131 @@ class TabManager(
 
     private fun findTabByWebView(webView: WebView): Tab? {
         return tabs.find { it.webView === webView }
+    }
+
+    fun saveState() {
+        try {
+            val array = org.json.JSONArray()
+            for (tab in tabs) {
+                val obj = org.json.JSONObject().apply {
+                    put("id", tab.id)
+                    put("url", tab.webView.url ?: tab.url)
+                    put("title", tab.title)
+                    put("profileId", tab.profile.id)
+                }
+                array.put(obj)
+
+                val bundle = android.os.Bundle()
+                val restored = tab.webView.saveState(bundle)
+                if (restored != null) {
+                    saveBundleToFile("tab_state_${tab.id}.dat", bundle)
+                }
+            }
+
+            val stateObj = org.json.JSONObject().apply {
+                put("activeTabIndex", activeTabIndex)
+                put("tabs", array)
+            }
+
+            val prefs = context.getSharedPreferences("devbrowser_settings", Context.MODE_PRIVATE)
+            prefs.edit().putString("saved_tab_state", stateObj.toString()).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save tab state: ${e.message}")
+        }
+    }
+
+    private fun saveBundleToFile(fileName: String, bundle: android.os.Bundle) {
+        try {
+            val parcel = android.os.Parcel.obtain()
+            bundle.writeToParcel(parcel, 0)
+            val bytes = parcel.marshall()
+            parcel.recycle()
+            java.io.File(context.filesDir, fileName).writeBytes(bytes)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to write bundle $fileName: ${e.message}")
+        }
+    }
+
+    private fun readBundleFromFile(fileName: String): android.os.Bundle? {
+        return try {
+            val file = java.io.File(context.filesDir, fileName)
+            if (!file.exists()) return null
+            val bytes = file.readBytes()
+            val parcel = android.os.Parcel.obtain()
+            parcel.unmarshall(bytes, 0, bytes.size)
+            parcel.setDataPosition(0)
+            val bundle = android.os.Bundle(context.classLoader)
+            bundle.readFromParcel(parcel)
+            parcel.recycle()
+            bundle
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read bundle $fileName: ${e.message}")
+            null
+        }
+    }
+
+    fun restoreState(profileManager: ProfileManager): Boolean {
+        val prefs = context.getSharedPreferences("devbrowser_settings", Context.MODE_PRIVATE)
+        val jsonStr = prefs.getString("saved_tab_state", null) ?: return false
+        return try {
+            val stateObj = org.json.JSONObject(jsonStr)
+            val array = stateObj.getJSONArray("tabs")
+            val savedActiveIndex = stateObj.optInt("activeTabIndex", 0)
+
+            if (array.length() == 0) return false
+
+            val profiles = profileManager.getProfiles()
+            val profileMap = profiles.associateBy { it.id }
+
+            destroyAll()
+
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val id = obj.optInt("id", nextId)
+                if (id >= nextId) nextId = id + 1
+                val url = obj.optString("url", "about:blank")
+                val title = obj.optString("title", "New Tab")
+                val profileId = obj.optString("profileId", "default")
+                val profile = profileMap[profileId] ?: profiles.firstOrNull() ?: ProfileManager.DEFAULT_PROFILES[0]
+
+                val webView = WebView(context)
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                    try {
+                        WebViewCompat.setProfile(webView, profile.id)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error setting profile: ${e.message}")
+                    }
+                }
+                configureWebView(webView)
+
+                val tab = Tab(id = id, webView = webView, title = title, url = url, profile = profile)
+                tabs.add(tab)
+
+                val bundle = readBundleFromFile("tab_state_${id}.dat")
+                var stateRestored = false
+                if (bundle != null) {
+                    val result = webView.restoreState(bundle)
+                    if (result != null) {
+                        stateRestored = true
+                    }
+                }
+                if (!stateRestored && url.isNotBlank() && url != "about:blank") {
+                    webView.loadUrl(url)
+                }
+            }
+
+            if (tabs.isNotEmpty()) {
+                val targetIndex = savedActiveIndex.coerceIn(0, tabs.size - 1)
+                switchToTab(targetIndex)
+                onTabListChanged()
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to restore state: ${e.message}")
+            false
+        }
     }
 
     fun updateDesktopMode(enabled: Boolean) {
