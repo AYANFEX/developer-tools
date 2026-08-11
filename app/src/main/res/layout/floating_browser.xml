@@ -1,41 +1,105 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/windowContainer"
     android:layout_width="320dp"
     android:layout_height="480dp"
     android:orientation="vertical"
     android:background="#1a1a2e"
-    android:elevation="8dp">
+    android:elevation="8dp"
+    android:clipToOutline="true">
 
-    <!-- Floating Header / Toolbar -->
+    <!-- Header / Traffic Lights & Draggable Bar -->
     <LinearLayout
-        android:id="@+id/floatToolbar"
+        android:id="@+id/header"
         android:layout_width="match_parent"
-        android:layout_height="40dp"
+        android:layout_height="36dp"
         android:background="#0d0d1a"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingStart="8dp"
         android:paddingEnd="8dp">
 
+        <!-- Traffic Lights -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginEnd="8dp">
+
+            <View
+                android:id="@+id/btnClose"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/dot_red" />
+
+            <View
+                android:id="@+id/btnMinimize"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/dot_yellow" />
+
+            <View
+                android:id="@+id/btnMaximize"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:background="@drawable/dot_green" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/floatTitle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="DevBrowser Floating"
+            android:text="DevBrowser"
             android:textColor="#4fc3f7"
-            android:textSize="13sp"
+            android:textSize="12sp"
             android:singleLine="true" />
+    </LinearLayout>
 
-        <ImageButton
-            android:id="@+id/floatClose"
-            android:layout_width="28dp"
+    <!-- Address Bar -->
+    <LinearLayout
+        android:id="@+id/addressBar"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:orientation="horizontal"
+        android:background="#12122a"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+
+        <EditText
+            android:id="@+id/urlInput"
+            android:layout_width="0dp"
             android:layout_height="28dp"
-            android:src="@drawable/ic_close"
-            android:background="@android:color/transparent"
-            android:scaleType="centerInside"
-            android:contentDescription="Close" />
+            android:layout_weight="1"
+            android:background="@drawable/url_bar_bg"
+            android:hint="Enter URL or search..."
+            android:textColor="#e0e0e0"
+            android:textColorHint="#666666"
+            android:textSize="12sp"
+            android:singleLine="true"
+            android:imeOptions="actionGo"
+            android:inputType="textUri"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp" />
+
+        <Button
+            android:id="@+id/goButton"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:layout_marginStart="6dp"
+            android:backgroundTint="#4fc3f7"
+            android:text="Go"
+            android:textColor="#0d0d1a"
+            android:textSize="11sp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp" />
     </LinearLayout>
 
     <!-- WebView Container -->
@@ -44,4 +108,19 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1" />
+
+    <!-- Resize Handle Footer -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="16dp"
+        android:background="#0d0d1a"
+        android:gravity="end|bottom"
+        android:paddingEnd="4dp">
+
+        <View
+            android:id="@+id/resizeHandle"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:background="@drawable/resize_diagonal" />
+    </LinearLayout>
 </LinearLayout>
