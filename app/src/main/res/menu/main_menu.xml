@@ -25,6 +25,9 @@
         android:id="@+id/menu_dock_right"
         android:title="@string/dock_right" />
     <item
+        android:id="@+id/menu_floating"
+        android:title="Open Floating Window" />
+    <item
         android:id="@+id/menu_settings"
         android:title="@string/settings" />
 </menu>
