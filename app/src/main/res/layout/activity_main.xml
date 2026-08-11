@@ -108,6 +108,17 @@
             android:scaleType="centerInside" />
     </LinearLayout>
 
+    <!-- Page loading progress bar -->
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:indeterminate="false"
+        android:max="100"
+        android:progressTint="#4fc3f7"
+        android:visibility="gone" />
+
     <!-- Tab strip -->
     <HorizontalScrollView
         android:id="@+id/tabStrip"
