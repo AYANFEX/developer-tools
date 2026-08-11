@@ -93,7 +93,7 @@ open class MainActivity : AppCompatActivity() {
         if (intentUrl != null) {
             tabManager.createTab(intentUrl, profileManager.getProfiles().firstOrNull())
         } else if (!restored) {
-            tabManager.createTab("https://www.google.com", profileManager.getProfiles().firstOrNull())
+            tabManager.createTab(TabManager.HOME_PAGE_URL, profileManager.getProfiles().firstOrNull())
         }
     }
 
@@ -129,16 +129,18 @@ open class MainActivity : AppCompatActivity() {
             onTabChanged = { tab ->
                 // Swap the WebView shown in the browser container
                 browserContainer.removeAllViews()
-                (tab.webView.parent as? ViewGroup)?.removeView(tab.webView)
-                browserContainer.addView(
-                    tab.webView,
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT
+                tab.webView?.let { wv ->
+                    (wv.parent as? ViewGroup)?.removeView(wv)
+                    browserContainer.addView(
+                        wv,
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                        )
                     )
-                )
+                    setupDownloadListener(wv)
+                }
                 urlBar.setText(tab.url)
-                setupDownloadListener(tab.webView)
                 updateTabStrip()
                 updateProgressBar(tab.progress)
             },
@@ -274,7 +276,6 @@ open class MainActivity : AppCompatActivity() {
             } else false
         }
 
-        // Update desktop mode button state
         updateDesktopToggleIcon()
     }
 
@@ -395,13 +396,9 @@ open class MainActivity : AppCompatActivity() {
         val cdpPort = prefs.getInt("cdp_http_port", baseCdpPort)
         val devtoolsPort = baseCdpPort + 2
 
-        // Discover the browser WebView's page ID from CDP /json endpoint
-        // Both HTTP and WS go through the same port (the Unix socket handles both)
         Thread {
             try {
-                // Small delay to ensure the page is registered with CDP
                 Thread.sleep(500)
-
                 val conn = java.net.URL("http://127.0.0.1:$cdpPort/json").openConnection()
                     as java.net.HttpURLConnection
                 conn.connectTimeout = 3000
@@ -409,16 +406,12 @@ open class MainActivity : AppCompatActivity() {
                 val json = conn.inputStream.bufferedReader().readText()
                 conn.disconnect()
 
-                Log.d(TAG, "CDP /json response: $json")
-
-                // Parse page entries
                 val idMatch = Regex(""""id"\s*:\s*"([^"]+)"""").findAll(json)
                 val urlMatch = Regex(""""url"\s*:\s*"([^"]+)"""").findAll(json)
 
                 val ids = idMatch.map { it.groupValues[1] }.toList()
                 val urls = urlMatch.map { it.groupValues[1] }.toList()
 
-                // Pick the page that isn't our devtools page
                 var pageId = ids.firstOrNull() ?: ""
                 for (i in ids.indices) {
                     if (i < urls.size && !urls[i].contains("devtools_app") && !urls[i].contains("$devtoolsPort")) {
@@ -427,13 +420,10 @@ open class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                Log.d(TAG, "Discovered page ID: $pageId")
-
                 val devtoolsUrl = "http://localhost:$devtoolsPort/devtools_app.html" +
                     "?ws=127.0.0.1:$cdpPort/devtools/page/$pageId"
 
                 runOnUiThread {
-                    Log.d(TAG, "Loading DevTools: $devtoolsUrl")
                     devtoolsWebView.loadUrl(devtoolsUrl)
                 }
             } catch (e: Exception) {
@@ -441,7 +431,6 @@ open class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     val devtoolsUrl = "http://localhost:$devtoolsPort/devtools_app.html" +
                         "?ws=127.0.0.1:$cdpPort"
-                    Log.d(TAG, "Loading DevTools (fallback): $devtoolsUrl")
                     devtoolsWebView.loadUrl(devtoolsUrl)
                 }
             }
@@ -465,17 +454,10 @@ open class MainActivity : AppCompatActivity() {
         isDevToolsVisible = false
     }
 
-    /**
-     * Hides DevTools panels that don't work with WebView's CDP implementation.
-     * Runs after the DevTools frontend has loaded. Uses MutationObserver to
-     * catch panels registered after initial load.
-     */
     private fun sendInspectCommand() {
         if (!isDevToolsVisible) showDevTools()
-        // Activate element picker via CDP — send Overlay.setInspectMode
         devtoolsWebView.evaluateJavascript("""
             (function() {
-                // Trigger the inspect element mode in DevTools
                 if (window.InspectorFrontendHost) {
                     window.InspectorFrontendHost.enterInspectElementMode();
                 }
@@ -511,7 +493,7 @@ open class MainActivity : AppCompatActivity() {
         if (isTabStripVisible) updateTabStrip()
     }
 
-    private fun showNewTabProfileDialog(url: String = "about:blank") {
+    private fun showNewTabProfileDialog(url: String = TabManager.HOME_PAGE_URL) {
         val profiles = profileManager.getProfiles()
         val items = profiles.map { "• ${it.name}" }.toTypedArray()
 
@@ -594,7 +576,6 @@ open class MainActivity : AppCompatActivity() {
             tabContainer.addView(tabView, params)
         }
 
-        // Add "+" button
         val addBtn = TextView(this).apply {
             text = "+"
             textSize = 18f
@@ -602,7 +583,7 @@ open class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
             setPadding(16, 0, 16, 0)
             setOnClickListener {
-                showNewTabProfileDialog("about:blank")
+                showNewTabProfileDialog(TabManager.HOME_PAGE_URL)
             }
         }
         tabContainer.addView(
@@ -633,6 +614,7 @@ open class MainActivity : AppCompatActivity() {
 
     private fun navigateToUrl(input: String) {
         val url = when {
+            input == TabManager.HOME_PAGE_URL -> TabManager.HOME_PAGE_URL
             input.startsWith("http://") || input.startsWith("https://") -> input
             input.startsWith("localhost") || input.startsWith("127.0.0.1") ||
                 input.startsWith("10.0.2.2") -> "http://$input"
@@ -647,7 +629,6 @@ open class MainActivity : AppCompatActivity() {
         webView.evaluateJavascript(
             "(function() { return document.documentElement.outerHTML; })();"
         ) { html ->
-            // html comes back as a JSON-encoded string
             val decoded = html
                 ?.removeSurrounding("\"")
                 ?.replace("\\n", "\n")
@@ -658,7 +639,7 @@ open class MainActivity : AppCompatActivity() {
 
             if (decoded != null) {
                 val sourceTab = tabManager.createTab("about:blank")
-                sourceTab.webView.loadDataWithBaseURL(
+                sourceTab.webView?.loadDataWithBaseURL(
                     null,
                     """
                     <html>
@@ -693,6 +674,29 @@ open class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ─── Floating Window ─────────────────────────────────
+
+    private fun openFloatingWindow() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M &&
+            !android.provider.Settings.canDrawOverlays(this)
+        ) {
+            Toast.makeText(this, "Please grant 'Draw over other apps' permission", Toast.LENGTH_LONG).show()
+            val intent = Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
+        } else {
+            val intent = Intent(this, FloatingBrowserService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            Toast.makeText(this, "Floating window opened", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // ─── Menu ────────────────────────────────────────────
 
     private fun showMenu(anchor: View) {
@@ -702,7 +706,7 @@ open class MainActivity : AppCompatActivity() {
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.menu_new_tab -> {
-                    showNewTabProfileDialog("about:blank")
+                    showNewTabProfileDialog(TabManager.HOME_PAGE_URL)
                     true
                 }
                 R.id.menu_devtools -> {
@@ -725,6 +729,10 @@ open class MainActivity : AppCompatActivity() {
                 R.id.menu_dock_right -> {
                     dockMode = DockMode.RIGHT
                     if (isDevToolsVisible) { hideDevTools(); showDevTools() }
+                    true
+                }
+                R.id.menu_floating -> {
+                    openFloatingWindow()
                     true
                 }
                 R.id.menu_inspect -> {
@@ -789,7 +797,6 @@ open class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Apply settings that may have changed
         applySettings()
     }
 
@@ -799,10 +806,10 @@ open class MainActivity : AppCompatActivity() {
         val customUa = prefs.getString("custom_user_agent", "") ?: ""
 
         tabManager.allTabs.forEach { tab ->
-            tab.webView.settings.javaScriptEnabled = jsEnabled
-            tab.webView.settings.blockNetworkImage = blockImages
+            tab.webView?.settings?.javaScriptEnabled = jsEnabled
+            tab.webView?.settings?.blockNetworkImage = blockImages
             if (customUa.isNotBlank()) {
-                tab.webView.settings.userAgentString = customUa
+                tab.webView?.settings?.userAgentString = customUa
             }
         }
     }
