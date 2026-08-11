@@ -55,7 +55,9 @@ class FloatingBrowserService : Service() {
             AppLogger.log("FloatingBrowserService startForeground successful")
 
             windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-            floatingView = LayoutInflater.from(this).inflate(R.layout.floating_browser, null)
+            
+            val themedContext = android.view.ContextThemeWrapper(this, R.style.Theme_DevBrowser)
+            floatingView = LayoutInflater.from(themedContext).inflate(R.layout.floating_browser, null)
             AppLogger.log("Floating view inflated successfully")
 
             val params = WindowManager.LayoutParams(
