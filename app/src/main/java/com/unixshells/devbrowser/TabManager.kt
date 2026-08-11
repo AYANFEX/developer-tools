@@ -14,12 +14,13 @@ import androidx.webkit.WebViewFeature
 
 data class Tab(
     val id: Int,
-    val webView: WebView,
+    var webView: WebView?,
     var title: String = "New Tab",
-    var url: String = "about:blank",
+    var url: String = "about:home",
     var favicon: Bitmap? = null,
     var profile: Profile = ProfileManager.DEFAULT_PROFILES[0],
-    var progress: Int = 0
+    var progress: Int = 0,
+    var savedBundleFileName: String? = null
 )
 
 class TabManager(
@@ -36,6 +37,117 @@ class TabManager(
         const val DESKTOP_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        const val HOME_PAGE_URL = "about:home"
+        const val HOME_PAGE_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DevBrowser Home</title>
+    <style>
+        body {
+            background: #1a1a2e;
+            color: #e0e0e0;
+            font-family: sans-serif;
+            margin: 0;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #4fc3f7;
+            margin-bottom: 8px;
+            font-size: 28px;
+        }
+        p {
+            color: #8888aa;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+        .search-box {
+            width: 100%;
+            max-width: 500px;
+            display: flex;
+            background: #12122a;
+            border: 1px solid #333355;
+            border-radius: 24px;
+            padding: 8px 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .search-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 16px;
+            outline: none;
+        }
+        .shortcuts {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-top: 32px;
+            max-width: 500px;
+            width: 100%;
+        }
+        .shortcut {
+            background: #252545;
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            text-decoration: none;
+            color: #ccc;
+            font-size: 13px;
+            transition: background 0.2s, transform 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        .shortcut:hover {
+            background: #333355;
+            color: #4fc3f7;
+            transform: translateY(-2px);
+        }
+        .shortcut span {
+            font-size: 24px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛠️ DevBrowser</h1>
+    <p>Developer Tools Browser with CDP Support</p>
+    <div class="search-box">
+        <input type="text" id="searchInput" class="search-input" placeholder="Search or type web URL..." autofocus />
+    </div>
+    <div class="shortcuts">
+        <a href="https://www.google.com" class="shortcut"><span>🔍</span>Google</a>
+        <a href="https://github.com" class="shortcut"><span>🐙</span>GitHub</a>
+        <a href="https://stackoverflow.com" class="shortcut"><span>💬</span>StackOverflow</a>
+        <a href="https://developer.mozilla.org" class="shortcut"><span>📖</span>MDN Docs</a>
+    </div>
+    <script>
+        const input = document.getElementById('searchInput');
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                let val = input.value.trim();
+                if (val) {
+                    if (val.startsWith('http://') || val.startsWith('https://') || val.includes('.')) {
+                        window.location.href = val.startsWith('http') ? val : 'https://' + val;
+                    } else {
+                        window.location.href = 'https://www.google.com/search?q=' + encodeURIComponent(val);
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+"""
     }
 
     private val tabs = mutableListOf<Tab>()
@@ -49,17 +161,15 @@ class TabManager(
     val allTabs: List<Tab> get() = tabs.toList()
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun createTab(url: String = "about:blank", profile: Profile? = null): Tab {
+    fun createTab(url: String = HOME_PAGE_URL, profile: Profile? = null): Tab {
         val selectedProfile = profile ?: ProfileManager.DEFAULT_PROFILES[0]
         val webView = WebView(context)
 
-        // Set WebView Profile for per-tab cookie/session isolation if supported
         if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
             try {
                 WebViewCompat.setProfile(webView, selectedProfile.id)
-                Log.d(TAG, "Set WebView profile '${selectedProfile.id}' for tab")
             } catch (e: Exception) {
-                Log.e(TAG, "Error setting WebView profile: ${e.message}")
+                Log.e(TAG, "Error setting profile: ${e.message}")
             }
         }
 
@@ -68,10 +178,21 @@ class TabManager(
         val tab = Tab(id = nextId++, webView = webView, url = url, profile = selectedProfile)
         tabs.add(tab)
         switchToTab(tabs.size - 1)
-        webView.loadUrl(url)
+        loadTabContent(tab, url)
         onTabListChanged()
         saveState()
         return tab
+    }
+
+    private fun loadTabContent(tab: Tab, url: String) {
+        val wv = tab.webView ?: return
+        if (url == HOME_PAGE_URL || url.isEmpty() || url == "about:blank") {
+            tab.url = HOME_PAGE_URL
+            wv.loadDataWithBaseURL(HOME_PAGE_URL, HOME_PAGE_HTML, "text/html", "UTF-8", null)
+        } else {
+            tab.url = url
+            wv.loadUrl(url)
+        }
     }
 
     fun closeTab(index: Int) {
@@ -80,7 +201,7 @@ class TabManager(
         try {
             java.io.File(context.filesDir, "tab_state_${tab.id}.dat").delete()
         } catch (_: Exception) {}
-        tab.webView.destroy()
+        tab.webView?.destroy()
 
         if (tabs.isEmpty()) {
             createTab()
@@ -100,10 +221,34 @@ class TabManager(
         if (activeTabIndex >= 0) closeTab(activeTabIndex)
     }
 
+    @SuppressLint("SetJavaScriptEnabled")
     fun switchToTab(index: Int) {
         if (index < 0 || index >= tabs.size) return
         activeTabIndex = index
-        onTabChanged(tabs[index])
+        val tab = tabs[index]
+
+        // Lazy initialize WebView if not yet created
+        if (tab.webView == null) {
+            val webView = WebView(context)
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                try {
+                    WebViewCompat.setProfile(webView, tab.profile.id)
+                } catch (_: Exception) {}
+            }
+            configureWebView(webView)
+            tab.webView = webView
+
+            val bundle = readBundleFromFile("tab_state_${tab.id}.dat")
+            var restored = false
+            if (bundle != null) {
+                restored = webView.restoreState(bundle) != null
+            }
+            if (!restored) {
+                loadTabContent(tab, tab.url)
+            }
+        }
+
+        onTabChanged(tab)
         saveState()
     }
 
@@ -147,7 +292,14 @@ class TabManager(
             override fun shouldOverrideUrlLoading(
                 view: WebView,
                 request: WebResourceRequest
-            ): Boolean = false
+            ): Boolean {
+                val url = request.url.toString()
+                if (url == HOME_PAGE_URL) {
+                    view.loadDataWithBaseURL(HOME_PAGE_URL, HOME_PAGE_HTML, "text/html", "UTF-8", null)
+                    return true
+                }
+                return false
+            }
         }
 
         webView.webChromeClient = object : WebChromeClient() {
@@ -189,16 +341,17 @@ class TabManager(
             for (tab in tabs) {
                 val obj = org.json.JSONObject().apply {
                     put("id", tab.id)
-                    put("url", tab.webView.url ?: tab.url)
+                    put("url", tab.webView?.url ?: tab.url)
                     put("title", tab.title)
                     put("profileId", tab.profile.id)
                 }
                 array.put(obj)
 
-                val bundle = android.os.Bundle()
-                val restored = tab.webView.saveState(bundle)
-                if (restored != null) {
-                    saveBundleToFile("tab_state_${tab.id}.dat", bundle)
+                tab.webView?.let { wv ->
+                    val bundle = android.os.Bundle()
+                    if (wv.saveState(bundle) != null) {
+                        saveBundleToFile("tab_state_${tab.id}.dat", bundle)
+                    }
                 }
             }
 
@@ -263,35 +416,14 @@ class TabManager(
                 val obj = array.getJSONObject(i)
                 val id = obj.optInt("id", nextId)
                 if (id >= nextId) nextId = id + 1
-                val url = obj.optString("url", "about:blank")
+                val url = obj.optString("url", HOME_PAGE_URL)
                 val title = obj.optString("title", "New Tab")
                 val profileId = obj.optString("profileId", "default")
                 val profile = profileMap[profileId] ?: profiles.firstOrNull() ?: ProfileManager.DEFAULT_PROFILES[0]
 
-                val webView = WebView(context)
-                if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
-                    try {
-                        WebViewCompat.setProfile(webView, profile.id)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error setting profile: ${e.message}")
-                    }
-                }
-                configureWebView(webView)
-
-                val tab = Tab(id = id, webView = webView, title = title, url = url, profile = profile)
+                // Lazy tab loading: do not create WebView for background tabs yet!
+                val tab = Tab(id = id, webView = null, title = title, url = url, profile = profile)
                 tabs.add(tab)
-
-                val bundle = readBundleFromFile("tab_state_${id}.dat")
-                var stateRestored = false
-                if (bundle != null) {
-                    val result = webView.restoreState(bundle)
-                    if (result != null) {
-                        stateRestored = true
-                    }
-                }
-                if (!stateRestored && url.isNotBlank() && url != "about:blank") {
-                    webView.loadUrl(url)
-                }
             }
 
             if (tabs.isNotEmpty()) {
@@ -311,14 +443,14 @@ class TabManager(
     fun updateDesktopMode(enabled: Boolean) {
         isDesktopMode = enabled
         tabs.forEach { tab ->
-            tab.webView.settings.userAgentString =
+            tab.webView?.settings?.userAgentString =
                 if (enabled) DESKTOP_USER_AGENT else null
         }
         activeTab?.webView?.reload()
     }
 
     fun destroyAll() {
-        tabs.forEach { it.webView.destroy() }
+        tabs.forEach { it.webView?.destroy() }
         tabs.clear()
         activeTabIndex = -1
     }
