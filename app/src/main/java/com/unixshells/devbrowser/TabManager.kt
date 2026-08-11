@@ -3,11 +3,13 @@ package com.unixshells.devbrowser
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebResourceRequest
+import android.webkit.ValueCallback
 import android.util.Log
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -30,7 +32,8 @@ class TabManager(
     private val onPageStarted: (String) -> Unit,
     private val onPageFinished: (String) -> Unit,
     private val onTitleChanged: (String) -> Unit,
-    private val onProgressChanged: (Tab, Int) -> Unit = { _, _ -> }
+    private val onProgressChanged: (Tab, Int) -> Unit = { _, _ -> },
+    private val onShowFileChooser: ((ValueCallback<Array<Uri>>?, WebChromeClient.FileChooserParams?) -> Boolean)? = null
 ) {
     companion object {
         private const val TAG = "TabManager"
@@ -227,7 +230,6 @@ class TabManager(
         activeTabIndex = index
         val tab = tabs[index]
 
-        // Lazy initialize WebView if not yet created
         if (tab.webView == null) {
             val webView = WebView(context)
             if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
@@ -303,6 +305,17 @@ class TabManager(
         }
 
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                if (onShowFileChooser != null) {
+                    return onShowFileChooser.invoke(filePathCallback, fileChooserParams)
+                }
+                return super.onShowFileChooser(webView, filePathCallback, fileChooserParams)
+            }
+
             override fun onProgressChanged(view: WebView, newProgress: Int) {
                 findTabByWebView(view)?.let { tab ->
                     tab.progress = newProgress
@@ -421,7 +434,6 @@ class TabManager(
                 val profileId = obj.optString("profileId", "default")
                 val profile = profileMap[profileId] ?: profiles.firstOrNull() ?: ProfileManager.DEFAULT_PROFILES[0]
 
-                // Lazy tab loading: do not create WebView for background tabs yet!
                 val tab = Tab(id = id, webView = null, title = title, url = url, profile = profile)
                 tabs.add(tab)
             }
@@ -450,7 +462,12 @@ class TabManager(
     }
 
     fun destroyAll() {
-        tabs.forEach { it.webView?.destroy() }
+        tabs.forEach { tab ->
+            try {
+                java.io.File(context.filesDir, "tab_state_${tab.id}.dat").delete()
+            } catch (_: Exception) {}
+            tab.webView?.destroy()
+        }
         tabs.clear()
         activeTabIndex = -1
     }
