@@ -1,34 +1,69 @@
 package com.unixshells.devbrowser
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.os.Build
 import android.os.IBinder
 import android.view.*
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ImageButton
-import android.widget.TextView
 import android.widget.LinearLayout
 import android.widget.FrameLayout
+import androidx.core.app.NotificationCompat
 
 class FloatingBrowserService : Service() {
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
     private var webView: WebView? = null
 
+    companion object {
+        private const val CHANNEL_ID = "floating_browser_channel"
+        private const val NOTIFICATION_ID = 1337
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+
+        // 1. Create foreground service notification to prevent Android 8.0+ ForegroundServiceDidNotStartInTimeException crash
+        createNotificationChannel()
+        val notificationIntent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, notificationIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("DevBrowser Floating")
+            .setContentText("Floating browser window is running")
+            .setSmallIcon(R.drawable.ic_devtools)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .build()
+
+        startForeground(NOTIFICATION_ID, notification)
+
+        // 2. Initialize WindowManager and Floating View
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         floatingView = LayoutInflater.from(this).inflate(R.layout.floating_browser, null)
 
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            320,
+            480,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            },
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -78,14 +113,33 @@ class FloatingBrowserService : Service() {
             }
         }
 
-        windowManager?.addView(floatingView, params)
+        try {
+            windowManager?.addView(floatingView, params)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            stopSelf()
+        }
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val serviceChannel = NotificationChannel(
+                CHANNEL_ID,
+                "Floating Browser Service Channel",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.createNotificationChannel(serviceChannel)
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         webView?.destroy()
         if (floatingView != null) {
-            windowManager?.removeView(floatingView)
+            try {
+                windowManager?.removeView(floatingView)
+            } catch (_: Exception) {}
         }
     }
 }
